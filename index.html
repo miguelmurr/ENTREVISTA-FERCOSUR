@@ -803,6 +803,32 @@
             // Reset de cuestionario
             currentQuestionIndex = 0;
             answers = [];
+
+            // Restaurar la estructura interna de la pantalla de carga para el nuevo postulante
+            document.getElementById('view-calculating').innerHTML = `
+                <div class="relative inline-flex items-center justify-center p-4 mb-6">
+                    <div class="absolute inset-0 rounded-full border-4 border-amber-100 animate-pulse"></div>
+                    <div class="w-16 h-16 rounded-full border-4 border-amber-500 border-t-transparent animate-spin"></div>
+                    <span class="absolute text-amber-600 font-bold text-lg"><i class="fa-solid fa-chart-line animate-bounce"></i></span>
+                </div>
+                <h3 class="text-xl font-extrabold text-slate-950 mb-2">Procesando Perfil Comercial</h3>
+                <p class="text-sm text-slate-500 max-w-sm mx-auto mb-6">Estamos cruzando las decisiones de ruta con la matriz de consistencia de Fercosur.</p>
+                
+                <div class="bg-slate-50 rounded-lg p-4 text-left text-xs text-slate-600 space-y-3 max-w-sm mx-auto">
+                    <div class="flex items-center space-x-2 text-emerald-600 font-semibold" id="calc-step-1">
+                        <i class="fa-solid fa-check"></i>
+                        <span>Respuestas registradas exitosamente.</span>
+                    </div>
+                    <div class="flex items-center space-x-2 text-slate-400" id="calc-step-2">
+                        <i class="fa-solid fa-circle-notch animate-spin text-amber-500" id="calc-spinner-2"></i>
+                        <span id="calc-text-2">Calculando balance de 4 ejes...</span>
+                    </div>
+                    <div class="flex items-center space-x-2 text-slate-400" id="calc-step-3">
+                        <i class="fa-solid fa-circle" id="calc-dot-3"></i>
+                        <span id="calc-text-3">Generando reporte de ruta y debilidades...</span>
+                    </div>
+                </div>
+            `;
             
             showView('view-quiz');
             renderQuestion();
@@ -1064,9 +1090,25 @@
                 // Agregamos al listado actual de la pantalla
                 evaluationHistory.unshift(evaluationRecord);
 
-                // Mostrar resultados en la pantalla de reporte
-                renderResultsScreen(evaluationRecord);
-                showView('view-results');
+                // Reemplazar el cargador por una tarjeta de agradecimiento elegante
+                document.getElementById('view-calculating').innerHTML = `
+                    <div class="py-6 text-center">
+                        <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
+                            <i class="fa-solid fa-circle-check"></i>
+                        </div>
+                        <h3 class="text-xl font-extrabold text-slate-950 mb-2">¡Evaluación Finalizada con Éxito!</h3>
+                        <p class="text-sm text-slate-500 max-w-sm mx-auto mb-6">Muchas gracias por tu tiempo. Tus respuestas han sido registradas de forma segura en el sistema de selección de Fercosur.</p>
+                        <div class="inline-flex items-center gap-2 text-xs text-amber-600 font-medium bg-amber-50 px-3 py-1.5 rounded-full">
+                            <i class="fa-solid fa-circle-notch animate-spin"></i>
+                            <span>Regresando al menú principal...</span>
+                        </div>
+                    </div>
+                `;
+
+                // Pausa para que el aspirante lea el mensaje y posterior limpieza del formulario
+                setTimeout(() => {
+                    restartAssessmentFlow();
+                }, 4000);
             }, 2600);
         }
 
@@ -1444,6 +1486,15 @@ Pregunta sugerida: ${latest.report.interviewQuestion}
         // --- PORTAL ADMINISTRATIVO / RECLUTADOR (HISTORIAL Y SIMULACIONES) ---
 
         async function toggleAdminPortal() {
+            // Solicitar contraseña de acceso al usuario
+            const contraseñaIngresada = prompt("Por favor, ingrese la clave de acceso al Portal Reclutador:");
+            
+            // Validar si la clave es la correcta
+            if (contraseñaIngresada !== "1234") {
+                showToastMessage("Acceso denegado. Clave incorrecta.");
+                return;
+            }
+
             showView('view-admin');
             
             // Mensaje temporal de carga en la tabla de postulantes
