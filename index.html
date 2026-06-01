@@ -452,6 +452,35 @@
         </div>
     </footer>
 
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+
+        // Configuración de tu proyecto proveída por Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyC3JZ2RCfJvFpaQBM52_1TWSeLbjXYh-AE",
+            authDomain: "entrevista-fercosur.firebaseapp.com",
+            projectId: "entrevista-fercosur",
+            storageBucket: "entrevista-fercosur.firebasestorage.app",
+            messagingSenderId: "161450223266",
+            appId: "1:161450223266:web:7b907dd826973d584159fb"
+        };
+
+        // Inicializar la base de datos en la nube
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Compartimos las herramientas con el resto de la página web
+        window.db = db;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.deleteDoc = deleteDoc;
+        window.doc = doc;
+        window.query = query;
+        window.orderBy = orderBy;
+    </script>
+
     <script>
         // --- BASE DE DATOS DE PREGUNTAS ---
         const QUESTIONS = [
@@ -738,8 +767,8 @@
             menos: null  // statementId
         };
 
-        // Historial de evaluaciones en LocalStorage
-        let evaluationHistory = JSON.parse(localStorage.getItem('fercosur_evaluation_history')) || [];
+        // Historial de evaluaciones enlazado a Firebase Store
+        let evaluationHistory = [];
 
         // --- MANEJO DE VISTAS (Navegación SPA) ---
         function showView(viewId) {
@@ -992,26 +1021,27 @@
         // --- STREAMING_CHUNK: Codificando algoritmos psicométricos locales de Fercosur ---
         // --- MOTOR DE PROCESAMIENTO PSICOMÉTRICO (ALGORITMO LOCAL) ---
 
-        function processQuizResults() {
+       function processQuizResults() {
             showView('view-calculating');
-
             // Simulación animada de pasos analíticos
             setTimeout(() => {
                 document.getElementById('calc-step-2').classList.replace('text-slate-400', 'text-emerald-600');
                 document.getElementById('calc-spinner-2').className = 'fa-solid fa-check';
                 
                 document.getElementById('calc-step-3').classList.replace('text-slate-400', 'text-slate-900');
+            
                 document.getElementById('calc-dot-3').className = 'fa-solid fa-circle-notch animate-spin text-amber-500';
             }, 1200);
-
-            setTimeout(() => {
+            
+            // Guardado automático en Firebase Store en la nube
+            setTimeout(async () => {
                 // Cálculo de la matriz comercial final
                 const finalMetrics = calculateMetricsMatrix();
                 
-                // Generar reporte
+                // Generar reporte narrativo
                 const report = generateCustomReport(finalMetrics);
 
-                // Almacenar evaluación en el historial
+                // Estructura completa del registro del postulante
                 const evaluationRecord = {
                     candidate: { ...currentCandidate },
                     metrics: finalMetrics,
@@ -1019,12 +1049,20 @@
                     timestamp: new Date().toISOString()
                 };
 
+                try {
+                    // Guardamos el documento directamente en la colección "evaluaciones"
+                    const docRef = await window.addDoc(window.collection(window.db, "evaluaciones"), evaluationRecord);
+                    // Guardamos el ID que le asignó Firebase por si se necesita borrar después
+                    evaluationRecord.firebaseId = docRef.id;
+                } catch (error) {
+                    console.error("Error al guardar en Firebase Store:", error);
+                }
+
+                // Agregamos al listado actual de la pantalla
                 evaluationHistory.unshift(evaluationRecord);
-                localStorage.setItem('fercosur_evaluation_history', JSON.stringify(evaluationHistory));
 
-                // Mostrar resultados en la pantalla
+                // Mostrar resultados en la pantalla de reporte
                 renderResultsScreen(evaluationRecord);
-
                 showView('view-results');
             }, 2600);
         }
@@ -1402,8 +1440,37 @@ Pregunta sugerida: ${latest.report.interviewQuestion}
         // --- STREAMING_CHUNK: Creando las funciones operativas del portal administrativo del reclutador ---
         // --- PORTAL ADMINISTRATIVO / RECLUTADOR (HISTORIAL Y SIMULACIONES) ---
 
-        function toggleAdminPortal() {
+        async function toggleAdminPortal() {
             showView('view-admin');
+            
+            // Mensaje temporal de carga en la tabla de postulantes
+            document.getElementById('admin-table-body').innerHTML = `
+                <tr>
+                    <td colspan="5" class="p-6 text-center text-slate-500">
+                        <i class="fa-solid fa-circle-notch animate-spin text-amber-500 mr-2"></i>
+                        <span>Descargando historial desde Firebase Store en vivo...</span>
+                    </td>
+                </tr>
+            `;
+            
+            try {
+                // Hacemos la consulta a Firebase ordenada por la fecha de creación
+                const consulta = window.query(window.collection(window.db, "evaluaciones"), window.orderBy("timestamp", "desc"));
+                const snapshot = await window.getDocs(consulta);
+                
+                evaluationHistory = []; // Vaciamos los datos viejos
+                
+                snapshot.forEach((documento) => {
+                    const datos = documento.data();
+                    datos.firebaseId = documento.id; // Almacenamos el identificador único de la nube
+                    evaluationHistory.push(datos);
+                });
+            } catch (error) {
+                console.error("Error al descargar de Firebase:", error);
+                showToastMessage('Error de conexión: No se pudo actualizar el historial.');
+            }
+            
+            // Pintamos la tabla con la información actualizada de la nube
             renderAdminTable();
         }
 
@@ -1472,11 +1539,29 @@ Pregunta sugerida: ${latest.report.interviewQuestion}
             showView('view-results');
         }
 
-        function deleteHistoricalRecord(index) {
-            evaluationHistory.splice(index, 1);
-            localStorage.setItem('fercosur_evaluation_history', JSON.stringify(evaluationHistory));
-            renderAdminTable();
-            showToastMessage('Registro eliminado del historial local.');
+        async function deleteHistoricalRecord(index) {
+            const registro = evaluationHistory[index];
+            
+            // Verificamos si el registro contiene su clave de Firebase Store
+            if (registro && registro.firebaseId) {
+                try {
+                    // Solicitamos la eliminación del documento en el servidor de Firebase
+                    await window.deleteDoc(window.doc(window.db, "evaluaciones", registro.firebaseId));
+                    
+                    // Si se borró en la nube, lo removemos del listado de la pantalla
+                    evaluationHistory.splice(index, 1);
+                    renderAdminTable();
+                    showToastMessage('Postulante eliminado de Firebase Store con éxito.');
+                } catch (error) {
+                    console.error("Error al borrar en Firebase:", error);
+                    showToastMessage('Error: No se pudo eliminar el registro de la nube.');
+                }
+            } else {
+                // Si es un candidato simulado que no llegó a subirse a internet
+                evaluationHistory.splice(index, 1);
+                renderAdminTable();
+                showToastMessage('Registro de prueba removido.');
+            }
         }
 
         // Simula un candidato aleatorio con respuestas lógicas para poder testear o evaluar el sistema rápidamente
